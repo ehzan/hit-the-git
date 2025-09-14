@@ -1,0 +1,38 @@
+#!/bin/usr/env bash
+
+# file=$(cat unsorted_ord_nums.txt);
+unsorted_ord_nums='1st: First, 21st: Twenty-First, 41st: Forty-First, 61th: Sixty-First, 81st: Eighty-First, 2nd: Second, 22nd: Twenty-Second, 42nd: Forty-Second, 62nd: Sixty-Second, 82nd: Eighty-Second, 3rd: Third, 23rd: Twenty-Third, 43rd: Forty-Third, 63rd: Sixty-Third, 83rd: Eighty-Third, 4th: Fourth, 24th: Twenty-Fourth, 44th: Forty-Fourth, 64th: Sixty-Fourth, 84th: Eighty-Fourth, 5th: Fifth, 25th: Twenty-Fifth, 45th: Forty-Fifth, 65th: Sixty-Fifth, 85th: Eighty-Fifth, 6th: Sixth, 26th: Twenty-Sixth, 46th: Forty-Sixth, 66th: Sixty-Sixth, 86th: Eighty-Sixth, 7th: Seventh, 27th: Twenty-Seventh, 47th: Forty-Seventh, 67th: Sixty-Seventh, 87th: Eighty-Seventh, 8th: Eighth, 28th: Twenty-Eighth, 48th: Forty-Eighth, 68th: Sixty-Eighth, 88th: Eighty-Eighth, 9th: Ninth, 29th: Twenty-Ninth, 49th: Forty-Ninth, 69th: Sixty-Ninth, 89th: Eighty-Ninth, 10th: Tenth, 30th: Thirtieth, 50th: Fiftieth, 70th: Seventieth, 90th: Ninetieth, 11th: Eleventh, 31st: Thirty-First, 51st: Fifty-First, 71st: Seventy-First, 91st: Ninety-First, 12th: Twelfth, 32nd: Thirty-Second, 52nd: Fifty-Second, 72nd: Seventy-Second, 92nd: Ninety-Second, 13th: Thirteenth, 33rd: Thirty-Third, 53rd: Fifty-Third, 73rd: Seventy-Third, 93rd: Ninety-Third, 14th: Fourteenth, 34th: Thirty-Fourth, 54th: Fifty-Fourth, 74th: Seventy-Fourth, 94th: Ninety-Fourth, 15th: Fifteenth, 35th: Thirty-Fifth, 55th: Fifty-Fifth, 75th: Seventy-Fifth, 95th: Ninety-Fifth, 16th: Sixteenth, 36th: Thirty-Sixth, 56th: Fifty-Sixth, 76th: Seventy-Sixth, 96th: Ninety-Sixth, 17th: Seventeenth, 37th: Thirty-Seventh, 57th: Fifty-Seventh, 77th: Seventy-Seventh, 97th: Ninety-Seventh, 18th: Eighteenth, 38th: Thirty-Eighth, 58th: Fifty-Eighth, 78th: Seventy-Eighth, 98th: Ninety-Eighth, 19th: Nineteenth, 39th: Thirty-Ninth, 59th: Fifty-Ninth, 79th: Seventy-Ninth, 99th: Ninety-Ninth, 20th: Twentieth, 40th: Fortieth, 60th: Sixtieth, 80th: Eightieth, 100th: Hundredth.';
+
+
+ordinal_numbers_to_file() {
+    ord_nums_str=$1;
+    declare -a ord_nums=(0);
+    declare -a ord_short=(0th);
+    declare -a ord_long=(zeroth);
+    
+    i=1; odd=1;
+    for word in $ord_nums_str; do
+        if [ $odd == 1 ]; then
+            ord_nums[i]=${word::-3};
+            ord_short[i]=${word::-1};
+        else
+            ord_long[i]=${word::-1};
+            ((i++));
+        fi
+        odd=$((1-odd));
+    done
+    
+    test ${#ord_short[*]} == ${#ord_long[*]} || echo Error!;
+    test ${#ord_short[*]} == ${#ord_long[*]} || return 1;
+
+    for i in $(seq 0 100); do
+        sorted_short[${ord_nums[$i]}]=${ord_short[$i]};
+        sorted_long[${ord_nums[$i]}]=${ord_long[$i]};
+    done
+
+    echo "${sorted_short[*]}" > ordinal_numbers.txt;
+    echo "${sorted_long[*]}" >> ordinal_numbers.txt;
+    echo ordinal_numbers.txt updated;
+}
+
+ordinal_numbers_to_file "$unsorted_ord_nums" ordinal_numbers.txt;
