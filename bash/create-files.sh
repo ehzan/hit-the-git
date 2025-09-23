@@ -2,10 +2,12 @@
 # set -euo pipefail
 # set -x pipefail
 
+
 help() {
     cat << EOF
 usage: source $0 --dir=<path>  --start_date=<date> --days=<number>
         --base-time=<time> [--interval=<minutes> (default: 60)] [-h | --help]
+example: source $0 --dir="./my files" --start-date=2025-01-01 --days=100 --base-time=12:00 --interval=120
 EOF
 }
 
@@ -92,6 +94,7 @@ check_parameters() {
 }
 
 
+
 load_ordinals() {
     local ordinals_file=$1
     local -a lines=()  
@@ -112,7 +115,7 @@ create_file() {
         echo "This is the ${ordinals_short[$l]} line." >> "$filepath"
     done
     ((file_count++))
-    echo $filepath created on $datetime.
+    # echo $filepath created on $datetime.
 }
 
 
@@ -125,7 +128,7 @@ update_file() {
     echo Update: "This is the ${ordinals_short[nl]} line." >> "$filepath"
     touch -d "$datetime" "$filepath";
     ((update_count++))
-    echo $filepath updated on $datetime. [$nl lines]
+    # echo $filepath updated on $datetime. [$nl lines]
 }
 
 
@@ -169,6 +172,5 @@ main () {
     echo $file_count new files + $update_count updates
     # ls -ltr "$dir"
 }
-
 
 main "$@"
