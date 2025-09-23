@@ -14,7 +14,6 @@ ordinal_numbers_to_file() {
     declare -a ordinals_long=(Zeroth)
     
     IFS=',' read -ra entries <<< "$input"
-
     for entry in "${entries[@]}"; do
         short=${entry%%:*}
         long=${entry#*: }
@@ -30,6 +29,5 @@ ordinal_numbers_to_file() {
     echo "${ordinals_long[@]}" >> "$output_file"
     echo "$output_file" updated
 }
-
 
 ordinal_numbers_to_file "$unsorted_ord_nums" "$output_file"
