@@ -97,7 +97,6 @@ add_file_entry() {
 }
 
 
-
 declare -i commits=0 creates=0 updates=0
 
 commit_on_date () {
@@ -106,7 +105,9 @@ commit_on_date () {
     local datetime=$3
 
     git add "$filepath"
-    GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
+    # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
+    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$0.log" 2>&1
+    git commit -m "$message" # >> "$0.log"
     printf "=%.s" {1..50}; echo
     ((commits++))
     [[ ${message% *} == create ]] && ((creates++)) || ((updates++))
@@ -129,6 +130,7 @@ commit_all() {
 
 
 main () {
+    printf "==========\nlogs on %s:\n" "$(date)" >> "$0.log"
     check_parameters "$@"
 
     for file in "$dir"/*"$type"; do
@@ -138,11 +140,10 @@ main () {
     local -a sorted=()
     IFS=$'\n' sorted=($(printf "%s\n" "${files[@]}" | sort -t'|' -k2))
     unset IFS
-    printf "%s\n" "${sorted[@]}"
+    # printf "%s\n" "${sorted[@]}"
 
     commit_all sorted
     echo "$commits commits ($creates creates + $updates updates)"
 }
-
 
 main "$@"
