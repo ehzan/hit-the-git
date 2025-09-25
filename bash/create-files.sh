@@ -94,7 +94,6 @@ check_parameters() {
 }
 
 
-
 load_ordinals() {
     local ordinals_file=$1
     local -a lines=()  
@@ -158,6 +157,7 @@ work() {
 
 
 main () {
+    printf "==========\nlogs on %s:\n" "$(date)" >> "$0.log"
     check_parameters "$@"
 
     load_ordinals "$ordinal_numbers_file"
