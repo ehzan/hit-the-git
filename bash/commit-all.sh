@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+readonly SCRIPT_DIR=$(dirname "$0")
+readonly LOG_FILE="$SCRIPT_DIR/$(basename "$0" .sh).log"
+readonly MAX_ATTEMPTS=3
+
+declare -i index=0
+declare -a files=()
+
+declare sudo_pwd
+declare dir type since until
+
 
 help() {
     cat << EOF
@@ -9,12 +19,6 @@ example: source $0 --dir="./my files" --file-type=txt --since=2025-01-01 --until
 EOF
 }
 
-
-declare -i index=0
-declare -a files=()
-
-declare sudo_pwd
-declare dir type since until
 
 check_parameters() {
     for param in "$@"; do
@@ -31,7 +35,7 @@ check_parameters() {
     local -i attempts=0
     while [[ ! -d "$dir" ]]; do
         [[ -z "$dir" ]] || echo dir: no such directory ‘"$dir"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter directory path: " dir
         ((attempts++))
     done
@@ -39,25 +43,25 @@ check_parameters() {
     attempts=0
     while [[ ! $type =~ ^[A-Za-z0-9]*$ ]]; do
         echo file-type: invalid file-type ‘"$type"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter file type: " type
         ((attempts++))
     done
     [[ -z "$type" ]] || type=.$type
 
     attempts=0
-    while ! ( [[ -z "$since" ]] || [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$since" >> "$0.log" 2>&1); do
+    while ! ( [[ -z "$since" ]] || [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$since" >> "$LOG_FILE" 2>&1); do
         echo since: invalid date ‘"$since"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter start date: " since
         ((attempts++))
     done
     [[ -z "$since" ]] || since=$(date -d "$since 00:00:00" +"%F %T")
 
     attempts=0
-    while ! ( [[ -z "$until" ]] || [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$until" >> "$0.log" 2>&1); do
+    while ! ( [[ -z "$until" ]] || [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$until" >> "$LOG_FILE" 2>&1); do
         echo until: invalid date ‘"$until"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter end date: " until
         ((attempts++))
     done
@@ -65,9 +69,9 @@ check_parameters() {
 
     read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
     attempts=1
-    while ! echo "$sudo_pwd" | sudo -S true >> "$0.log" 2>&1; do
+    while ! echo "$sudo_pwd" | sudo -S true >> "$LOG_FILE" 2>&1; do
         echo incorrect password
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
         ((attempts++))
     done
@@ -106,8 +110,8 @@ commit_on_date () {
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$0.log" 2>&1
-    git commit -m "$message" # >> "$0.log"
+    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1
+    git commit -m "$message" # >> "$LOG_FILE"
     printf "=%.s" {1..50}; echo
     ((commits++))
     [[ ${message% *} == create ]] && ((creates++)) || ((updates++))
@@ -129,8 +133,15 @@ commit_all() {
 }
 
 
+cleanup() {
+    local current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
+    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE" 2>&1
+}
+trap cleanup EXIT
+
+
 main () {
-    printf "==========\nlogs on %s:\n" "$(date)" >> "$0.log"
+    printf "==========\nlogs on %s:\n" "$(date)" >> "$LOG_FILE"
     check_parameters "$@"
 
     for file in "$dir"/*"$type"; do
