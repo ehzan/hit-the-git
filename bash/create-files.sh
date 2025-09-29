@@ -2,33 +2,35 @@
 # set -euo pipefail
 # set -x pipefail
 
+readonly SCRIPT_DIR=$(dirname "$0")
+readonly LOG_FILE="$SCRIPT_DIR/$(basename "$0" .sh).log"
+readonly ORDINAS_FILE="$SCRIPT_DIR/ordinal-numbers.txt"
+readonly MAX_ATTEMPTS=3 INITIAL_FILE_COUNT=10
 
-help() {
-    cat << EOF
-usage: source $0 --dir=<path>  --start_date=<date> --days=<number>
-        --base-time=<time> [--interval=<minutes> (default: 60)] [-h | --help]
-example: source $0 --dir="./my files" --start-date=2025-01-01 --days=100 --base-time=12:00 --interval=120
-EOF
-}
-
-
-declare ordinal_numbers_file=ordinal-numbers.txt
-declare -a ordinals_short=()
-declare -a ordinals_long=()
-declare -i file_count=0
-declare -i update_count=0
-declare -i initial_file_count=10
-declare -A p_work=( [Fri]=1 [Thu]=3 [other]=5 )
+declare -A p_work=( [Fri]=1 [Thu]=3 [default]=5 )
+declare -a ordinals_short=() ordinals_long=()
+declare -i file_count=0 update_count=0
 
 declare sudo_pwd
 declare dir start_date base_time
 declare -i days interval
+
+
+help() {
+    cat << EOF
+usage: source $0 --dir=<path> [-c | --clear] --start_date=<date> --days=<number>
+        --base-time=<time> [--interval=<minutes> (default: 60)] [-h | --help]
+example: source $0 --dir="./my files" --clear --start-date=2025-01-01 --days=100 --base-time=12:00 --interval=120
+EOF
+}
+
 
 check_parameters() {
     for param in "$@"; do
         case $param in
             -h | --help )       help; exit 0 ;;
             "--dir="* )         dir=${param#*=} ;;
+            -c | --clear )      clear=true ;;
             "--start-date="* )  start_date=${param#*=} ;;
             "--days="* )        days=${param#*=} ;;
             "--base-time="* )   base_time=${param#*=} ;;
@@ -38,17 +40,19 @@ check_parameters() {
     done
 
     local -i attempts=0
-    while ! mkdir -p "$dir" >> "$0.log" 2>&1; do
+    while ! mkdir -p "$dir" >> "$LOG_FILE" 2>&1; do
         [[ -z "$dir" ]] || echo dir: cannot find or create directory ‘"$dir"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit; }
         read -rp "enter directory path: " dir
         ((attempts++))
     done
 
+    [[ $clear == true ]] && rm -rf "$dir"/{*,.[!.]*,..?*}
+
     attempts=0
-    while ! ( [[ $start_date =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$start_date" >> "$0.log" 2>&1); do
+    while ! ( [[ $start_date =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$start_date" >> "$LOG_FILE" 2>&1); do
         [[ -z "$start_date" ]] || echo start-date: invalid date ‘"$start_date"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter start date: " start_date
         ((attempts++))
     done
@@ -57,16 +61,16 @@ check_parameters() {
     attempts=0
     while ! [[ $days =~ ^[0-9]+$ && $days -gt 0 ]]; do
         [[ -z "$days" ]] || echo days: invalid value ‘"$days"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter number of days: " days
         ((attempts++))
     done
     days=$((10#$days))
 
     attempts=0
-    while ! ( [[ $base_time =~ ^[0-9]{1,2}(:[0-9]+){0,2}$ ]] && date -d "$base_time" >> "$0.log" 2>&1); do
+    while ! ( [[ $base_time =~ ^[0-9]{1,2}(:[0-9]+){0,2}$ ]] && date -d "$base_time" >> "$LOG_FILE" 2>&1); do
         [[ -z "$base_time" ]] || echo base-time: invalid time ‘"$base_time"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter base time: " base_time
         ((attempts++))
     done
@@ -75,7 +79,7 @@ check_parameters() {
     attempts=0
     while [[ ! $interval =~ ^[0-9]*$ ]]; do
         echo interval: invalid value ‘"$interval"’
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter interval (minutes): " interval
         ((attempts++))
     done
@@ -83,9 +87,9 @@ check_parameters() {
 
     read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
     attempts=1
-    while ! echo "$sudo_pwd" | sudo -S true >> "$0.log" 2>&1; do
+    while ! echo "$sudo_pwd" | sudo -S true >> "$LOG_FILE" 2>&1; do
         echo incorrect password
-        (( attempts < 3 )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
         ((attempts++))
     done
@@ -104,12 +108,11 @@ load_ordinals() {
 
 
 create_file() {
-    local filename=$1
-    local datetime=$2
+    local filename=$1 datetime=$2
 
     filepath="$dir/$filename"
     rm -f "$filepath"   # : > "$filepath"
-    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$0.log" 2>&1
+    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1
     for l in $(seq 1 5); do
         echo "This is the ${ordinals_short[$l]} line." >> "$filepath"
     done
@@ -119,13 +122,12 @@ create_file() {
 
 
 update_file() {
-    local filename=$1
-    local datetime=$2
+    local filename=$1 datetime=$2
 
     filepath="$dir/$filename"
     nl=$(( 1 + $(wc -l < "$filepath") ))
     echo Update: "This is the ${ordinals_short[nl]} line." >> "$filepath"
-    touch -d "$datetime" "$filepath";
+    touch -d "$datetime" "$filepath"
     ((update_count++))
     # echo $filepath updated on $datetime. [$nl lines]
 }
@@ -156,20 +158,36 @@ work() {
 }
 
 
+show_progress() {
+    local current=$1 total=$2 file_count=$3 update_count=$4
+    local -i percent=$((100*current/total)) end=$((20*current/total))
+    printf "\rnew files: %s, updates: %s   [%-20s] %d%%" \
+    $file_count $update_count "$(printf "#%.0s" $(seq 1 $end))" $percent
+}
+
+
+cleanup() {
+    local current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
+    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE" 2>&1
+}
+trap cleanup EXIT
+
+
 main () {
-    printf "==========\nlogs on %s:\n" "$(date)" >> "$0.log"
+    printf "==========\nlogs on %s:\n" "$(date)" >> "$LOG_FILE"
     check_parameters "$@"
 
-    load_ordinals "$ordinal_numbers_file"
-    create_primary_files $initial_file_count
+    load_ordinals "$ORDINAS_FILE"
+    create_primary_files $INITIAL_FILE_COUNT
 
     local -i p
     for i in $(seq 1 $days); do
         read -r date wd <<< "$(date -d "$start_date +$i day" +"%F %a")"
-        p=${p_work[$wd]:-${p_work[other]}}  # echo $i: $date, $wd, $p;
+        p=${p_work[$wd]:-${p_work[default]}}  # echo $i: $date, $wd, $p;
         [[ $((RANDOM % 10)) -lt $p ]] && work "$date"
+        show_progress $i $days $file_count $update_count
     done
-    echo $file_count new files + $update_count updates
+    echo
     # ls -ltr "$dir"
 }
 
