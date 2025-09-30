@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 
 # Input: unsorted 100 ordinal numbers as a comma-separated string
@@ -7,9 +8,7 @@ declare output_file=ordinal-numbers.txt
 
 
 ordinal_numbers_to_file() {
-    local input=$1
-    local output_file=$2
-
+    local input=$1 output_file=$2
     declare -a ordinals_short=(0th)
     declare -a ordinals_long=(Zeroth)
     
@@ -23,7 +22,7 @@ ordinal_numbers_to_file() {
         ordinals_long[num]=$long
     done
 
-    [[ "${#ordinals_short[@]}" == "${#ordinals_long[@]}" ]] || { echo Error!; exit; }
+    (( ${#ordinals_short[@]} == ${#ordinals_long[@]} )) || { echo Error!; exit 1; }
 
     echo "${ordinals_short[@]}" > "$output_file"
     echo "${ordinals_long[@]}" >> "$output_file"
