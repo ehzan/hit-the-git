@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 
 readonly SCRIPT_DIR=$(dirname "$0")
@@ -8,7 +9,6 @@ readonly MAX_ATTEMPTS=3
 declare -i index=0
 declare -a files=()
 
-declare sudo_pwd
 declare dir type since until
 
 
@@ -19,7 +19,6 @@ usage: source $0 --dir=<path> [--file-type=<type>]
 example: source $0 --dir="./my files" --file-type=txt --since=2025-01-01 --until=2025-12-31
 EOF
 }
-
 
 check_parameters() {
     for param in "$@"; do
@@ -35,7 +34,7 @@ check_parameters() {
 
     local -i attempts=0
     while [[ ! -d "$dir" ]]; do
-        [[ -z "$dir" ]] || echo dir: no such directory ‘"$dir"’
+        [ -z "$dir" ] || echo dir: no such directory ‘"$dir"’
         (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter directory path: " dir
         ((attempts++))
@@ -48,34 +47,25 @@ check_parameters() {
         read -rp "enter file type: " type
         ((attempts++))
     done
-    [[ -z "$type" ]] || type=.$type
+    [ -z "$type" ] || type=.$type
 
     attempts=0
-    while ! ( [[ -z "$since" ]] || [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$since" >> "$LOG_FILE" 2>&1); do
+    while ! ( [ -z "$since" ] || [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$since" >> "$LOG_FILE" 2>&1); do
         echo since: invalid date ‘"$since"’
         (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter start date: " since
         ((attempts++))
     done
-    [[ -z "$since" ]] || since=$(date -d "$since 00:00:00" +"%F %T")
+    [ -z "$since" ] || since=$(date -d "$since 00:00:00" +"%F %T")
 
     attempts=0
-    while ! ( [[ -z "$until" ]] || [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$until" >> "$LOG_FILE" 2>&1); do
+    while ! ( [ -z "$until" ] || [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$until" >> "$LOG_FILE" 2>&1); do
         echo until: invalid date ‘"$until"’
         (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
         read -rp "enter end date: " until
         ((attempts++))
     done
-    [[ -z "$until" ]] || until=$(date -d "$until 23:59:59" +"%F %T")
-
-    read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
-    attempts=1
-    while ! echo "$sudo_pwd" | sudo -S true >> "$LOG_FILE" 2>&1; do
-        echo incorrect password
-        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
-        read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
-        ((attempts++))
-    done
+    [ -z "$until" ] || until=$(date -d "$until 23:59:59" +"%F %T")
 
     echo "files: $dir/*$type, created/modified: [$since - $until]"
 }
@@ -109,11 +99,13 @@ commit_on_date () {
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1 || { echo failed to set date; exit 1; }
-    git commit -m "$message" # >> "$LOG_FILE"
-    printf "=%.s" {1..50}; echo
-    ((commits++))
-    [[ ${message% *} == create ]] && ((creates++)) || ((updates++))
+    if faketime "$datetime" git commit -m "$message"; then  # >> "$LOG_FILE"
+        printf "=%.s" {1..50}; echo
+        ((commits++))
+        (("${message% *}s"++))
+    else
+        exit 1
+    fi
 }
 
 
@@ -121,25 +113,16 @@ commit_all() {
     local -n list=$1
     local filename filepath datetime action
 
-    git reset
+    # printf "%s\n" "${list[@]}"
+    git reset > /dev/null
     for line in "${list[@]}"; do
         IFS='|' read -r filepath datetime action <<< "$line"
         filename=${filepath##*/}
         message="$action $filename"
         [[ $action == update ]] && { echo >> "$filepath"; touch -d "$datetime" "$filepath"; }
-        echo "$filepath" "$message" "$datetime"
         commit_on_date "$filepath" "$message" "$datetime"
     done
 }
-
-
-cleanup() {
-    local current_datetime
-
-    current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
-    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE"
-}
-trap cleanup EXIT
 
 
 main () {
@@ -149,11 +132,10 @@ main () {
     for file in "$dir"/*"$type"; do
         add_file_entry "$file"
     done
-    
+
     local -a sorted=()
     IFS=$'\n' sorted=($(printf "%s\n" "${files[@]}" | sort -t'|' -k2))
     unset IFS
-    # printf "%s\n" "${sorted[@]}"
 
     commit_all sorted
     echo "$commits commits ($creates creates + $updates updates)"
