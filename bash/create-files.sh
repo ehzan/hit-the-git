@@ -2,6 +2,7 @@
 # set -euo pipefail
 # set -x pipefail
 
+
 readonly SCRIPT_DIR=$(dirname "$0")
 readonly LOG_FILE="$SCRIPT_DIR/$(basename "$0" .sh).log"
 readonly ORDINAS_FILE="$SCRIPT_DIR/ordinal-numbers.txt"
@@ -41,17 +42,19 @@ check_parameters() {
 
     local -i attempts=0
     while ! mkdir -p "$dir" >> "$LOG_FILE" 2>&1; do
-        [[ -z "$dir" ]] || echo dir: cannot find or create directory ‘"$dir"’
-        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit; }
+        [ -z "$dir" ] || echo dir: cannot find or create directory ‘"$dir"’
+        (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter directory path: " dir
         ((attempts++))
     done
 
-    [[ $clear == true ]] && rm -rf "$dir"/{*,.[!.]*,..?*}
+    if [[ $clear == true ]]; then
+        rm -rf "${dir:?}"/{*,.[!.]*,..?*} || { echo could not delete files in ‘"$dir"’; exit 1; }
+    fi
 
     attempts=0
     while ! ( [[ $start_date =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$start_date" >> "$LOG_FILE" 2>&1); do
-        [[ -z "$start_date" ]] || echo start-date: invalid date ‘"$start_date"’
+        [ -z "$start_date" ] || echo start-date: invalid date ‘"$start_date"’
         (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter start date: " start_date
         ((attempts++))
@@ -60,7 +63,7 @@ check_parameters() {
 
     attempts=0
     while ! [[ $days =~ ^[0-9]+$ && $days -gt 0 ]]; do
-        [[ -z "$days" ]] || echo days: invalid value ‘"$days"’
+        [ -z "$days" ] || echo days: invalid value ‘"$days"’
         (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter number of days: " days
         ((attempts++))
@@ -69,7 +72,7 @@ check_parameters() {
 
     attempts=0
     while ! ( [[ $base_time =~ ^[0-9]{1,2}(:[0-9]+){0,2}$ ]] && date -d "$base_time" >> "$LOG_FILE" 2>&1); do
-        [[ -z "$base_time" ]] || echo base-time: invalid time ‘"$base_time"’
+        [ -z "$base_time" ] || echo base-time: invalid time ‘"$base_time"’
         (( attempts < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter base time: " base_time
         ((attempts++))
@@ -83,7 +86,7 @@ check_parameters() {
         read -rp "enter interval (minutes): " interval
         ((attempts++))
     done
-    [[ -z "$interval" ]] && interval=60 || interval=$((10#$interval))
+    [ -z "$interval" ] && interval=60 || interval=$((10#$interval))
 
     read -rsp "[sudo] password for $(whoami): " sudo_pwd; echo
     attempts=1
@@ -100,7 +103,9 @@ check_parameters() {
 
 load_ordinals() {
     local ordinals_file=$1
-    local -a lines=()  
+    local -a lines=()
+
+    [ -f "$ordinals_file" ] || { echo ‘"$ordinals_file"’ not found; exit 1; }
     mapfile -t lines < "$ordinals_file"
     IFS=' ' read -ra ordinals_short <<< "${lines[0]}"
     IFS=' ' read -ra ordinals_long <<< "${lines[1]}"
@@ -112,7 +117,8 @@ create_file() {
 
     filepath="$dir/$filename"
     rm -f "$filepath"   # : > "$filepath"
-    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1
+    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1 || { echo failed to set date; exit 1; }
+    touch "$filepath"
     for l in $(seq 1 5); do
         echo "This is the ${ordinals_short[$l]} line." >> "$filepath"
     done
@@ -135,6 +141,7 @@ update_file() {
 
 create_primary_files () {
     local -i n=$1
+
     for i in $(seq 1 $n); do
         datetime=$(date -d "$start_date $base_time $i minutes" +"%F %T")
         create_file "${ordinals_long[i]}.txt" "$datetime"
@@ -144,6 +151,7 @@ create_primary_files () {
 
 work() {
     local date=$1
+
     for m in $(shuf -n3 -i0-$interval | sort); do
         datetime=$(date -d "$date $base_time $m min $((RANDOM % 60)) sec" +"%F %T")
         if (( RANDOM % 2)); then
@@ -159,16 +167,19 @@ work() {
 
 
 show_progress() {
-    local current=$1 total=$2 file_count=$3 update_count=$4
+    local -i current=$1 total=$2 file_count=$3 update_count=$4
     local -i percent=$((100*current/total)) end=$((20*current/total))
+
     printf "\rnew files: %s, updates: %s   [%-20s] %d%%" \
     $file_count $update_count "$(printf "#%.0s" $(seq 1 $end))" $percent
 }
 
 
 cleanup() {
-    local current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
-    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE" 2>&1
+    local current_datetime
+
+    current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
+    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE"
 }
 trap cleanup EXIT
 
@@ -184,7 +195,7 @@ main () {
     for i in $(seq 1 $days); do
         read -r date wd <<< "$(date -d "$start_date +$i day" +"%F %a")"
         p=${p_work[$wd]:-${p_work[default]}}  # echo $i: $date, $wd, $p;
-        [[ $((RANDOM % 10)) -lt $p ]] && work "$date"
+        [ $((RANDOM % 10)) -lt $p ] && work "$date"
         show_progress $i $days $file_count $update_count
     done
     echo

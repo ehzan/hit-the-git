@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 readonly SCRIPT_DIR=$(dirname "$0")
 readonly LOG_FILE="$SCRIPT_DIR/$(basename "$0" .sh).log"
 readonly MAX_ATTEMPTS=3
@@ -104,13 +105,11 @@ add_file_entry() {
 declare -i commits=0 creates=0 updates=0
 
 commit_on_date () {
-    local filepath=$1
-    local message=$2
-    local datetime=$3
+    local filepath=$1 message=$2 datetime=$3
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1
+    echo "$sudo_pwd" | sudo -S date -s "$datetime" >> "$LOG_FILE" 2>&1 || { echo failed to set date; exit 1; }
     git commit -m "$message" # >> "$LOG_FILE"
     printf "=%.s" {1..50}; echo
     ((commits++))
@@ -122,6 +121,7 @@ commit_all() {
     local -n list=$1
     local filename filepath datetime action
 
+    git reset
     for line in "${list[@]}"; do
         IFS='|' read -r filepath datetime action <<< "$line"
         filename=${filepath##*/}
@@ -134,8 +134,10 @@ commit_all() {
 
 
 cleanup() {
-    local current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
-    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE" 2>&1
+    local current_datetime
+
+    current_datetime=$(curl -sI google.com | grep -i '^date:' | cut -d' ' -f2-)
+    echo "$sudo_pwd" | sudo -S date -s "$current_datetime" >> "$LOG_FILE"
 }
 trap cleanup EXIT
 
@@ -147,7 +149,7 @@ main () {
     for file in "$dir"/*"$type"; do
         add_file_entry "$file"
     done
-
+    
     local -a sorted=()
     IFS=$'\n' sorted=($(printf "%s\n" "${files[@]}" | sort -t'|' -k2))
     unset IFS
