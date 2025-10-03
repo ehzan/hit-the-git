@@ -7,21 +7,24 @@ readonly MAX_ATTEMPTS=3
 declare -i index=0
 declare -a files=()
 
-declare dir file_type since until
+declare dir file_type since until username email
 
 
 help() {
     cat << EOF
 usage: bash ${BASH_SOURCE[0]} --dir=<path> [--file-type=<type>] [--since=<date>] [--until=<date>]
+            --user=<username> --email=<email>
             [-h | --help]
 options:
     --dir=<path>        directory containing files to process
-    --file-type=<type>  file extension to filter
+    --file-type=<type>  file extension to filter (e.g. txt)
     --since=<date>      start date (YYYY-MM-DD)
     --until=<date>      end date (YYYY-MM-DD)
+    --user=<username>   username of the committer
+    --email=<email>     email of the committer
     -h, --help          show this help message
 
-example: bash ${BASH_SOURCE[0]} --dir="./my files" --file-type=txt --until=2025-12-31
+example: bash ${BASH_SOURCE[0]} --dir="./my files" --file-type=txt --until=2025-12-31 --user=John --email=john@gmail.com
 EOF
 }
 
@@ -49,6 +52,8 @@ pars_args() {
             --file-type=* ) file_type=${arg#*=} ;;
             --since=* )     since=${arg#*=} ;; 
             --until=* )     until=${arg#*=} ;; 
+            --user=* )      username=${arg#*=} ;; 
+            --email=* )     email=${arg#*=} ;; 
             * ) echo "❌ unknown option '$arg'" >&2; help; exit 1 ;;
         esac
     done
@@ -59,6 +64,9 @@ pars_args() {
                     "[[ -z \$since ]] || [[ \$since =~ ^[0-9]+(-[0-9]+){2} ]] && date -d \"\$since\" &>/dev/null"
     validate_input  until "enter end date (YYYY-MM-DD)" \
                     "[[ -z \$until ]] || [[ \$until =~ ^[0-9]+(-[0-9]+){2} ]] && date -d \"\$until\" &>/dev/null"
+    validate_input  username "enter username" "[[ \$username =~ ^[A-Za-z0-9_]+$ ]]"
+    validate_input  email "enter user's email" \
+                    "[[ \$email =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]"
 
     [[ -z $file_type ]] || file_type=.$file_type
     [[ -z $since ]] || since=$(date -d "$since 00:00:00" +"%F %T")
@@ -67,6 +75,7 @@ pars_args() {
     echo "--- configuration ---"
     echo "files:     $dir/*$file_type"
     echo "time span: [${since:-big bang} - ${until:-eternity}]"
+    echo "user: $username <$email>"
     echo "---------------------"
 }
 
@@ -99,7 +108,7 @@ commit_on_date () {
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    if faketime "$datetime" git commit -qm "$message"; then
+    if faketime "$datetime" git -c user.name="$username" -c user.email="$email" commit -qm "$message"; then
         # printf "=%.s" {1..50}; echo
         ((++commits))
         ((++"${message% *}s"))
@@ -132,7 +141,7 @@ main () {
 
     mapfile -t < <(printf "%s\n" "${files[@]}" | sort -t'|' -k2)
     commit_all MAPFILE
-    
+
     echo "$commits commits ($creates creates + $updates updates)"
 }
 
