@@ -7,71 +7,67 @@ readonly MAX_ATTEMPTS=3
 declare -i index=0
 declare -a files=()
 
-declare dir type since until
+declare dir file_type since until
 
 
 help() {
     cat << EOF
-usage: source $0 --dir=<path> [--file-type=<type>]
-        [--since=<date>] [--until=<date>] [-h | --help]
-example: source $0 --dir="./my files" --file-type=txt --since=2025-01-01 --until=2025-12-31
+usage: bash ${BASH_SOURCE[0]} --dir=<path> [--file-type=<type>] [--since=<date>] [--until=<date>]
+            [-h | --help]
+options:
+    --dir=<path>        directory containing files to process
+    --file-type=<type>  file extension to filter
+    --since=<date>      start date (YYYY-MM-DD)
+    --until=<date>      end date (YYYY-MM-DD)
+    -h, --help          show this help message
+
+example: bash ${BASH_SOURCE[0]} --dir="./my files" --file-type=txt --until=2025-12-31
 EOF
 }
 
 
-check_parameters() {
-    for param in "$@"; do
-        case $param in
+validate_input() {
+    local -n param=$1
+    local param_name=$1 prompt_text="$2" validation_cmd="$3"
+
+    param="${param-}"
+    local -i attempts=0
+    while ! eval "$validation_cmd"; do
+        [[ -n $param ]] && echo "$param_name: invalid value '$param'" >&2
+        ((++attempts > MAX_ATTEMPTS)) && { echo "$MAX_ATTEMPTS incorrect attempts, exiting..." >&2; exit 1; }
+        read -rp "$prompt_text: " param
+    done
+}
+
+pars_args() {
+    echo
+    local arg
+    for arg in "$@"; do
+        case $arg in
             -h | --help )   help; exit 0 ;;
-            "--dir="* )     dir=${param#*=} ;;
-            "--file-type="* | "--filetype="* )  type=${param#*=} ;;
-            "--since="* )   since=${param#*=} ;; 
-            "--until="* )   until=${param#*=} ;; 
-            * ) echo unknown option: ‘"$param"’; help; exit 1 ;;
+            --dir=* )       dir=${arg#*=} ;;
+            --file-type=* ) file_type=${arg#*=} ;;
+            --since=* )     since=${arg#*=} ;; 
+            --until=* )     until=${arg#*=} ;; 
+            * ) echo "❌ unknown option '$arg'" >&2; help; exit 1 ;;
         esac
     done
 
-    local -i attempts=0
-    while ! [[ -v dir && -d "$dir" ]]; do
-        [ -v dir ] && echo dir: no such directory ‘"$dir"’
-        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
-        read -rp "enter directory path: " dir
-    done
+    validate_input  dir "enter directory path" "[[ -d \$dir ]]"
+    validate_input  file_type "enter file type" "[[ \$file_type =~ ^[A-Za-z0-9]*$ ]]"
+    validate_input  since "enter start date (YYYY-MM-DD)" \
+                    "[[ -z \$since ]] || [[ \$since =~ ^[0-9]+(-[0-9]+){2} ]] && date -d \"\$since\" &>/dev/null"
+    validate_input  until "enter end date (YYYY-MM-DD)" \
+                    "[[ -z \$until ]] || [[ \$until =~ ^[0-9]+(-[0-9]+){2} ]] && date -d \"\$until\" &>/dev/null"
 
-    attempts=0
-    [ -v type ] || type=""
-    while ! [[ $type =~ ^[A-Za-z0-9]*$ ]]; do
-        echo file-type: invalid file-type ‘"$type"’
-        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
-        read -rp "enter file type: " type
-    done
-    [ -z "$type" ] || type=.$type
+    [[ -z $file_type ]] || file_type=.$file_type
+    [[ -z $since ]] || since=$(date -d "$since 00:00:00" +"%F %T")
+    [[ -z $until ]] || until=$(date -d "$until 23:59:59" +"%F %T")
 
-    attempts=0
-    while [ -v since ]; do
-        if ! [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]]; then
-            echo date: invalid date ‘"$since"’
-        else
-            date -d "$since" +"%F" >/dev/null && break
-        fi
-        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
-        read -rp "enter start-date: " since
-    done
-    [ -v since ] && since=$(date -d "$since 00:00:00" +"%F %T")
-
-    attempts=0
-    while [ -v until ]; do
-        if ! [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]]; then
-            echo date: invalid date ‘"$until"’
-        else
-             date -d "$until" +"%F" >/dev/null && break
-        fi
-        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
-        read -rp "enter end-date: " until
-    done
-    [ -v until ] && until=$(date -d "$until 23:59:59" +"%F %T")
-
-    echo "files: $dir/*$type, time span: [${since:-big bang} - ${until:-eternity}]"
+    echo "--- configuration ---"
+    echo "files:     $dir/*$file_type"
+    echo "time span: [${since:-big bang} - ${until:-eternity}]"
+    echo "---------------------"
 }
 
 
@@ -81,14 +77,15 @@ add_file_entry() {
 
     created_date=$(stat "$filepath" -c '%w' | cut -d' ' -f1,2)
     modified_date=$(stat "$filepath" -c '%y' | cut -d' ' -f1,2)
-    if [[ ! (-v since && "$since" > "$created_date") \
-        && ! (-v until && "$created_date" > "$until") ]]; then
+
+    if [[ -z $since || ! "$since" > "$created_date" ]] \
+        && [[ -z $until || ! "$created_date" > "$until" ]]; then
         files[index]="$filepath|$created_date|create"
         ((++index))
     fi
-    if [[ ! (-v since && "$since" > "$modified_date") \
-        && ! (-v until && "$modified_date" > "$until") \
-        && (${created_date%%:*} < ${modified_date%%:*}) ]]; then
+    if [[ ${created_date%%:*} < ${modified_date%%:*} ]] \
+        && [[ -z $since || ! "$since" > "$modified_date" ]] \
+        && [[ -z $until || ! "$modified_date" > "$until" ]]; then
         files[index]="$filepath|$modified_date|update"
         ((++index))
     fi
@@ -102,8 +99,8 @@ commit_on_date () {
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    if faketime "$datetime" git commit -m "$message"; then
-        printf "=%.s" {1..50}; echo
+    if faketime "$datetime" git commit -qm "$message"; then
+        # printf "=%.s" {1..50}; echo
         ((++commits))
         ((++"${message% *}s"))
     else
@@ -114,7 +111,7 @@ commit_on_date () {
 
 commit_all() {
     local -n list=$1
-    local filename filepath datetime action
+    local line filename filepath datetime action message
 
     for line in "${list[@]}"; do
         IFS='|' read -r filepath datetime action <<< "$line"
@@ -127,16 +124,16 @@ commit_all() {
 
 
 main () {
-    check_parameters "$@"
-    for file in "$dir"/*"$type"; do
+    pars_args "$@"
+
+    for file in "$dir"/*"$file_type"; do
         add_file_entry "$file"
     done
 
-    local -a sorted=()
-    mapfile -t sorted < <(printf "%s\n" "${files[@]}" | sort -t'|' -k2)
-
-    commit_all sorted
+    mapfile -t < <(printf "%s\n" "${files[@]}" | sort -t'|' -k2)
+    commit_all MAPFILE
+    
     echo "$commits commits ($creates creates + $updates updates)"
 }
 
-main "$@"
+[[ "$0" == "${BASH_SOURCE[0]}" ]] && main "$@"
