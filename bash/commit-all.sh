@@ -2,8 +2,6 @@
 set -euo pipefail
 
 
-readonly SCRIPT_DIR=$(dirname "$0")
-readonly LOG_FILE="$SCRIPT_DIR/$(basename "$0" .sh).log"
 readonly MAX_ATTEMPTS=3
 
 declare -i index=0
@@ -20,6 +18,7 @@ example: source $0 --dir="./my files" --file-type=txt --since=2025-01-01 --until
 EOF
 }
 
+
 check_parameters() {
     for param in "$@"; do
         case $param in
@@ -33,41 +32,46 @@ check_parameters() {
     done
 
     local -i attempts=0
-    while [[ ! -d "$dir" ]]; do
-        [ -z "$dir" ] || echo dir: no such directory ‘"$dir"’
-        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
+    while ! [[ -v dir && -d "$dir" ]]; do
+        [ -v dir ] && echo dir: no such directory ‘"$dir"’
+        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter directory path: " dir
-        ((attempts++))
     done
 
     attempts=0
-    while [[ ! $type =~ ^[A-Za-z0-9]*$ ]]; do
+    [ -v type ] || type=""
+    while ! [[ $type =~ ^[A-Za-z0-9]*$ ]]; do
         echo file-type: invalid file-type ‘"$type"’
-        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
+        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
         read -rp "enter file type: " type
-        ((attempts++))
     done
     [ -z "$type" ] || type=.$type
 
     attempts=0
-    while ! ( [ -z "$since" ] || [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$since" >> "$LOG_FILE" 2>&1); do
-        echo since: invalid date ‘"$since"’
-        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
-        read -rp "enter start date: " since
-        ((attempts++))
+    while [ -v since ]; do
+        if ! [[ $since =~ ^[0-9]+-[0-9]+-[0-9]+$ ]]; then
+            echo date: invalid date ‘"$since"’
+        else
+            date -d "$since" +"%F" >/dev/null && break
+        fi
+        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
+        read -rp "enter start-date: " since
     done
-    [ -z "$since" ] || since=$(date -d "$since 00:00:00" +"%F %T")
+    [ -v since ] && since=$(date -d "$since 00:00:00" +"%F %T")
 
     attempts=0
-    while ! ( [ -z "$until" ] || [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]] && date -d "$until" >> "$LOG_FILE" 2>&1); do
-        echo until: invalid date ‘"$until"’
-        (( attempts < MAX_ATTEMPTS )) || { echo 3 incorrect attempts; exit 1; }
-        read -rp "enter end date: " until
-        ((attempts++))
+    while [ -v until ]; do
+        if ! [[ $until =~ ^[0-9]+-[0-9]+-[0-9]+$ ]]; then
+            echo date: invalid date ‘"$until"’
+        else
+             date -d "$until" +"%F" >/dev/null && break
+        fi
+        (( attempts++ < MAX_ATTEMPTS )) || { echo $MAX_ATTEMPTS incorrect attempts; exit 1; }
+        read -rp "enter end-date: " until
     done
-    [ -z "$until" ] || until=$(date -d "$until 23:59:59" +"%F %T")
+    [ -v until ] && until=$(date -d "$until 23:59:59" +"%F %T")
 
-    echo "files: $dir/*$type, created/modified: [$since - $until]"
+    echo "files: $dir/*$type, time span: [${since:-big bang} - ${until:-eternity}]"
 }
 
 
@@ -77,17 +81,16 @@ add_file_entry() {
 
     created_date=$(stat "$filepath" -c '%w' | cut -d' ' -f1,2)
     modified_date=$(stat "$filepath" -c '%y' | cut -d' ' -f1,2)
-    
-    if [[ (-z "$since" || ! "$since" > "$created_date") \
-        && (-z "$until" || ! "$created_date" > "$until") ]]; then
+    if [[ ! (-v since && "$since" > "$created_date") \
+        && ! (-v until && "$created_date" > "$until") ]]; then
         files[index]="$filepath|$created_date|create"
-        ((index++))
+        ((++index))
     fi
-    if [[ (-z "$since" || ! "$since" > "$modified_date") \
-        && (-z "$until" || ! "$modified_date" > "$until") \
+    if [[ ! (-v since && "$since" > "$modified_date") \
+        && ! (-v until && "$modified_date" > "$until") \
         && (${created_date%%:*} < ${modified_date%%:*}) ]]; then
         files[index]="$filepath|$modified_date|update"
-        ((index++))
+        ((++index))
     fi
 }
 
@@ -99,10 +102,10 @@ commit_on_date () {
 
     git add "$filepath"
     # GIT_COMMITTER_DATE="$datetime" && git commit --date="$datetime" -m "$message"
-    if faketime "$datetime" git commit -m "$message"; then  # >> "$LOG_FILE"
+    if faketime "$datetime" git commit -m "$message"; then
         printf "=%.s" {1..50}; echo
-        ((commits++))
-        (("${message% *}s"++))
+        ((++commits))
+        ((++"${message% *}s"))
     else
         exit 1
     fi
@@ -113,8 +116,6 @@ commit_all() {
     local -n list=$1
     local filename filepath datetime action
 
-    # printf "%s\n" "${list[@]}"
-    git reset > /dev/null
     for line in "${list[@]}"; do
         IFS='|' read -r filepath datetime action <<< "$line"
         filename=${filepath##*/}
@@ -126,16 +127,13 @@ commit_all() {
 
 
 main () {
-    printf "==========\nlogs on %s:\n" "$(date)" >> "$LOG_FILE"
     check_parameters "$@"
-
     for file in "$dir"/*"$type"; do
         add_file_entry "$file"
     done
 
     local -a sorted=()
-    IFS=$'\n' sorted=($(printf "%s\n" "${files[@]}" | sort -t'|' -k2))
-    unset IFS
+    mapfile -t sorted < <(printf "%s\n" "${files[@]}" | sort -t'|' -k2)
 
     commit_all sorted
     echo "$commits commits ($creates creates + $updates updates)"
