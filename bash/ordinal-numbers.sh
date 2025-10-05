@@ -9,7 +9,7 @@ readonly SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 readonly DEFAULT_OUTPUT_FILE=ordinal-numbers.txt
 
 declare -a ordinals_short=(0th)
-declare -a ordinals_long=(Zeroth)
+declare -a ordinals_long=(zeroth)
 
 
 parse_ordinal_numbers() {
@@ -18,7 +18,7 @@ parse_ordinal_numbers() {
     IFS=',' read -ra entries <<< "$input"
     for entry in "${entries[@]}"; do
         short=${entry%%:*}
-        long=${entry#*: }
+        long=${entry#*: }; long=${long,,}
         num=${short//[^0-9]/}
 
         ordinals_short[num]=$short
